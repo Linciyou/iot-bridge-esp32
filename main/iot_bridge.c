@@ -15,8 +15,7 @@
 #include "nvs_flash.h"
 
 #define WIFI_CONNECTED_BIT BIT0
-#define WIFI_FAIL_BIT      BIT1
-#define MAXIMUM_RETRY      8
+#define WIFI_RETRY_LIMIT   8
 #define TELEMETRY_QUEUE_LENGTH 16
 
 static const char *TAG = "iot_bridge";
@@ -39,18 +38,16 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
-        if (retry_count++ < MAXIMUM_RETRY) {
-            ESP_LOGW(TAG, "Wi-Fi disconnected; retrying (%d/%d)", retry_count, MAXIMUM_RETRY);
+        if (retry_count++ < WIFI_RETRY_LIMIT) {
+            ESP_LOGW(TAG, "Wi-Fi disconnected; retry %d/%d", retry_count, WIFI_RETRY_LIMIT);
             esp_wifi_connect();
         } else {
-            xEventGroupSetBits(wifi_event_group, WIFI_FAIL_BIT);
             ESP_LOGE(TAG, "Wi-Fi reconnect limit reached");
         }
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         retry_count = 0;
-        xEventGroupClearBits(wifi_event_group, WIFI_FAIL_BIT);
         xEventGroupSetBits(wifi_event_group, WIFI_CONNECTED_BIT);
-        ESP_LOGI(TAG, "Wi-Fi connected; bridge is online");
+        ESP_LOGI(TAG, "Wi-Fi connected");
     }
 }
 
@@ -94,7 +91,7 @@ static void telemetry_producer_task(void *arg)
         };
 
         if (xQueueSend(telemetry_queue, &message, pdMS_TO_TICKS(100)) != pdPASS) {
-            ESP_LOGW(TAG, "Telemetry queue full; dropped sequence=%" PRIu32, message.sequence);
+        ESP_LOGW(TAG, "queue full; dropped sequence=%" PRIu32, message.sequence);
         }
         vTaskDelay(pdMS_TO_TICKS(CONFIG_BRIDGE_SAMPLE_PERIOD_MS));
     }
@@ -123,10 +120,10 @@ static esp_err_t send_telemetry(const telemetry_t *message)
     esp_http_client_set_post_field(client, payload, length);
     esp_err_t err = esp_http_client_perform(client);
     if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Forwarded sequence=%" PRIu32 ", HTTP %d", message->sequence,
+        ESP_LOGI(TAG, "sent sequence=%" PRIu32 ", HTTP %d", message->sequence,
                  esp_http_client_get_status_code(client));
     } else {
-        ESP_LOGW(TAG, "Failed to forward sequence=%" PRIu32 ": %s", message->sequence,
+        ESP_LOGW(TAG, "send failed for sequence=%" PRIu32 ": %s", message->sequence,
                  esp_err_to_name(err));
     }
     esp_http_client_cleanup(client);
@@ -143,7 +140,7 @@ static void cloud_bridge_task(void *arg)
         EventBits_t bits = xEventGroupWaitBits(wifi_event_group, WIFI_CONNECTED_BIT,
                                                 pdFALSE, pdTRUE, pdMS_TO_TICKS(15000));
         if (!(bits & WIFI_CONNECTED_BIT)) {
-            ESP_LOGW(TAG, "Offline; discarded sequence=%" PRIu32, message.sequence);
+            ESP_LOGW(TAG, "offline; dropped sequence=%" PRIu32, message.sequence);
             continue;
         }
         send_telemetry(&message);
@@ -168,6 +165,6 @@ void app_main(void)
     wifi_init_sta();
     xTaskCreate(telemetry_producer_task, "telemetry_source", 3072, NULL, 5, NULL);
     xTaskCreate(cloud_bridge_task, "cloud_bridge", 6144, NULL, 5, NULL);
-    ESP_LOGI(TAG, "IoT bridge started: queue=%d, endpoint=%s", TELEMETRY_QUEUE_LENGTH,
+    ESP_LOGI(TAG, "started: queue=%d, endpoint=%s", TELEMETRY_QUEUE_LENGTH,
              CONFIG_BRIDGE_HTTP_ENDPOINT);
 }
