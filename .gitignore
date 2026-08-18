@@ -1,0 +1,14 @@
+# ESP-IDF generated output
+build/
+build-*/
+
+# Local ESP-IDF settings may contain Wi-Fi credentials
+sdkconfig
+sdkconfig.*
+!sdkconfig.defaults
+
+# Local test output
+*.log
+*.elf
+*.bin
+__pycache__/

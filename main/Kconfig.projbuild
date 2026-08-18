@@ -1,0 +1,26 @@
+menu "IoT bridge configuration"
+
+config BRIDGE_WIFI_SSID
+    string "Wi-Fi SSID"
+    default ""
+    help
+        SSID of the 2.4 GHz Wi-Fi network used by the bridge.
+
+config BRIDGE_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default ""
+    help
+        Leave empty only for an open network.
+
+config BRIDGE_HTTP_ENDPOINT
+    string "Upstream HTTP endpoint"
+    default "http://192.168.1.100:8080/telemetry"
+    help
+        HTTP endpoint that receives JSON telemetry with POST requests.
+
+config BRIDGE_SAMPLE_PERIOD_MS
+    int "Telemetry sample period (ms)"
+    range 250 60000
+    default 2000
+
+endmenu
